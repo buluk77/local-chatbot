@@ -10,13 +10,27 @@ import io
 from pypdf import PdfReader
 
 from database import get_db, init_db
-from models import ChatSession, ChatMessage, Document
+from models import ChatSession, ChatMessage, Document, Project
 
 app = FastAPI(title="Local Chatbot API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 @app.on_event("startup")
 async def startup(): await init_db()
+
+# --- ENDPOINT PROJECTS ---
+@app.get("/api/projects")
+async def get_projects(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Project).order_by(Project.created_at.desc()))
+    return [{"id": p.id, "name": p.name} for p in result.scalars().all()]
+
+@app.post("/api/projects")
+async def create_project(data: dict, db: AsyncSession = Depends(get_db)):
+    project_id = str(uuid.uuid4())
+    new_project = Project(id=project_id, name=data.get("name", "New Project"))
+    db.add(new_project)
+    await db.commit()
+    return {"id": project_id, "name": new_project.name}
 
 # --- ENDPOINT UPLOAD DOKUMEN (RAG) ---
 @app.post("/api/upload")
@@ -40,24 +54,25 @@ async def upload_document(
     else:
         return {"error": "Format harus PDF atau TXT"}
 
-    # Simpan ke Database
     doc = Document(session_id=session_id, filename=file.filename, content=text)
     db.add(doc)
     await db.commit()
     return {"status": "success", "filename": file.filename}
 
-# --- ENDPOINT SESSION & HISTORY (Sama seperti sebelumnya) ---
+# --- ENDPOINT SESSION & HISTORY ---
 @app.post("/api/sessions")
-async def create_session(db: AsyncSession = Depends(get_db)):
+async def create_session(data: dict = None, db: AsyncSession = Depends(get_db)):
     session_id = str(uuid.uuid4())
-    db.add(ChatSession(id=session_id, title="New Chat"))
+    project_id = data.get("project_id") if data else None
+    new_session = ChatSession(id=session_id, title="New Chat", project_id=project_id)
+    db.add(new_session)
     await db.commit()
-    return {"id": session_id, "title": "New Chat"}
+    return {"id": session_id, "title": "New Chat", "project_id": project_id}
 
 @app.get("/api/sessions")
 async def get_sessions(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ChatSession).order_by(ChatSession.created_at.desc()))
-    return [{"id": s.id, "title": s.title} for s in result.scalars().all()]
+    return [{"id": s.id, "title": s.title, "project_id": s.project_id} for s in result.scalars().all()]
 
 @app.get("/api/sessions/{session_id}/messages")
 async def get_messages(session_id: str, db: AsyncSession = Depends(get_db)):
@@ -96,20 +111,17 @@ async def chat(data: dict, db: AsyncSession = Depends(get_db)):
     model = data.get("model", "qwen2.5:1.5b")
     base_url = data.get("base_url", "https://api.openai.com/v1")
 
-    # LOGIKA RAG: Ambil dokumen di session ini (jika ada)
+    # LOGIKA RAG: Ambil dokumen di session ini
     context_text = ""
     if session_id:
         doc_result = await db.execute(select(Document).where(Document.session_id == session_id))
         docs = doc_result.scalars().all()
         if docs:
-            # Ambil 5000 karakter pertama dari dokumen (karena konteks Qwen terbatas)
             context_text = "\n\n".join([f"--- DOKUMEN: {d.filename} ---\n{d.content[:5000]}" for d in docs])
             system_prompt += f"\n\nGunakan informasi dari dokumen berikut untuk menjawab pertanyaan user jika relevan:\n{context_text}"
 
-    # Susun pesan final (System Prompt + History + User Message terakhir)
     final_messages = [{"role": "system", "content": system_prompt}]
-    for m in messages[:-1]: # History sebelumnya
-        final_messages.append(m)
+    for m in messages[:-1]: final_messages.append(m)
     final_messages.append({"role": "user", "content": user_message})
 
     if session_id and user_message:

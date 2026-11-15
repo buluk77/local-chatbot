@@ -1,30 +1,35 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Plus, MessageSquare, Trash2, Settings as SettingsIcon, Send, Bot, User, Menu, Paperclip, Moon, Sun, X, Search, Folder } from 'lucide-react';
+import { Sandpack } from "@codesandbox/sandpack-react";
+import { Plus, MessageSquare, Trash2, Settings as SettingsIcon, Send, Bot, User, Menu, Paperclip, Moon, Sun, X, Search, Folder, Code, Box } from 'lucide-react';
 
 interface Message { role: 'user' | 'assistant'; content: string; }
-interface Session { id: string; title: string; }
+interface Session { id: string; title: string; project_id: string | null; }
+interface Project { id: string; name: string; }
 interface ApiConfig { provider: string; api_key: string; base_url: string; model: string; }
 
-// KODE DINAMIS: Otomatis mendeteksi IP (untuk HP) atau localhost (untuk PC)
 const API_BASE_URL = `http://${window.location.hostname}:8000`;
 
 export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProject, setActiveProject] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   
-  // Deteksi layar HP untuk default sidebar tertutup
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 768);
   
-  // Fitur
   const [isDark, setIsDark] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState("Anda adalah asisten AI yang membantu, cerdas, dan ramah.");
   const [uploading, setUploading] = useState(false);
   const [fileUploaded, setFileUploaded] = useState<string | null>(null);
+  const [isCodeMode, setIsCodeMode] = useState(false);
+  const [isArtifactMode, setIsArtifactMode] = useState(false);
   
   const [config, setConfig] = useState<ApiConfig>({
     provider: 'ollama', api_key: '', base_url: 'https://api.openai.com/v1', model: 'qwen2.5:1.5b'
@@ -34,13 +39,16 @@ export default function App() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load Theme
   useEffect(() => {
     if (isDark) document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   }, [isDark]);
 
-  useEffect(() => { fetchSessions(); }, []);
+  useEffect(() => { 
+    fetchSessions(); 
+    fetchProjects();
+  }, []);
+
   useEffect(() => {
     if (currentSessionId) {
       fetch(`${API_BASE_URL}/api/sessions/${currentSessionId}/messages`).then(res => res.json()).then(data => setMessages(data));
@@ -49,7 +57,6 @@ export default function App() {
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -64,14 +71,60 @@ export default function App() {
     } catch (e) { console.error("Backend mati atau belum siap."); }
   };
 
+  const fetchProjects = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/projects`);
+      setProjects(await res.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const toggleCodeMode = () => {
+    if (isCodeMode) {
+      setIsCodeMode(false);
+      setSystemPrompt("Anda adalah asisten AI yang membantu, cerdas, dan ramah.");
+    } else {
+      setIsCodeMode(true);
+      setIsArtifactMode(false);
+      setSystemPrompt("Anda adalah seorang Programmer Senior. Fokus pada penulisan kode yang bersih, efisien, dan berikan penjelasan singkat. Selalu gunakan blok kode (markdown) untuk jawaban Anda.");
+    }
+  };
+
+  const toggleArtifactMode = () => {
+    if (isArtifactMode) {
+      setIsArtifactMode(false);
+      setSystemPrompt("Anda adalah asisten AI yang membantu, cerdas, dan ramah.");
+    } else {
+      setIsArtifactMode(true);
+      setIsCodeMode(false);
+      setSystemPrompt("Anda adalah seorang Web Developer Ahli. Jika diminta membuat komponen UI, berikan kode HTML/CSS/JS lengkap di dalam satu blok kode (markdown). Jangan berikan penjelasan panjang, fokus pada kode.");
+    }
+  };
+
   const createNewSession = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sessions`, { method: 'POST' });
+      const res = await fetch(`${API_BASE_URL}/api/sessions`, { 
+        method: 'POST', 
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ project_id: activeProject })
+      });
       const newSession = await res.json();
       setSessions([newSession, ...sessions]);
       setCurrentSessionId(newSession.id);
       setFileUploaded(null);
     } catch (e) { alert("Gagal membuat chat baru. Pastikan Backend menyala."); }
+  };
+
+  const createProject = async () => {
+    const name = prompt("Masukkan nama project/folder baru:");
+    if (!name) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/projects`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name})
+      });
+      const newProj = await res.json();
+      setProjects([newProj, ...projects]);
+    } catch (e) { alert("Gagal membuat project"); }
   };
 
   const deleteSession = async (e: React.MouseEvent, id: string) => {
@@ -83,7 +136,6 @@ export default function App() {
     } catch (e) { console.error(e); }
   };
 
-  // FITUR UPLOAD DOKUMEN
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -185,35 +237,63 @@ export default function App() {
     } finally { setIsLoading(false); }
   };
 
+  const filteredSessions = sessions.filter(s => {
+    const matchesSearch = s.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesProject = activeProject ? s.project_id === activeProject : true;
+    return matchesSearch && matchesProject;
+  });
+
   return (
     <div className={`flex h-screen overflow-hidden ${isDark ? 'dark' : ''}`}>
       <div className="flex w-full bg-[#f9fafb] dark:bg-[#111827] text-[#111827] dark:text-gray-100 transition-colors duration-200">
         
-        {/* SIDEBAR (Dengan Menu Baru) */}
+        {/* SIDEBAR */}
         <aside className={`absolute md:relative z-20 h-full ${sidebarOpen ? 'w-64' : 'w-0'} bg-[#f3f4f6] dark:bg-[#1f2937] border-r border-gray-200 dark:border-gray-700 transition-all duration-300 flex flex-col flex-shrink-0 overflow-hidden`}>
           <div className="p-3 space-y-1">
-            {/* Tombol New Chat */}
             <button onClick={createNewSession} className="w-full flex items-center gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 px-3 py-2.5 rounded-lg text-sm font-medium shadow-sm transition-all mb-2">
               <Plus size={16} /> New Chat
             </button>
 
-            {/* MENU BARU */}
-            <button className="w-full flex items-center gap-3 px-3 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50 rounded-lg text-sm font-medium transition-colors">
-              <Search size={16} /> Search
-            </button>
-            
-            <button className="w-full flex items-center gap-3 px-3 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50 rounded-lg text-sm font-medium transition-colors">
-              <Folder size={16} /> Projects
+            <div className="relative px-1 mb-1">
+              <Search size={14} className="absolute left-3 top-2.5 text-gray-400" />
+              <input 
+                type="text" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-transparent border border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-gray-300 dark:focus:border-gray-600 rounded-lg pl-8 pr-3 py-1.5 text-sm outline-none transition-all"
+              />
+            </div>
+
+            <button onClick={createProject} className="w-full flex items-center gap-3 px-3 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50 rounded-lg text-sm font-medium transition-colors">
+              <Folder size={16} /> Add Project
             </button>
 
-            {/* Garis Pembatas */}
+            {projects.length > 0 && (
+              <div className="mb-2">
+                {projects.map(p => (
+                  <div key={p.id} onClick={() => setActiveProject(activeProject === p.id ? null : p.id)}
+                    className={`ml-2 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${activeProject === p.id ? 'bg-gray-300 dark:bg-gray-600 font-semibold' : 'text-gray-500 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'}`}>
+                    <Folder size={12} /> {p.name}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button onClick={toggleCodeMode} 
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isCodeMode ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'}`}>
+              <Code size={16} /> Code
+            </button>
+            
+            <button onClick={toggleArtifactMode}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isArtifactMode ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'}`}>
+              <Box size={16} /> Artifacts
+            </button>
+
             <div className="h-px bg-gray-200 dark:bg-gray-700 my-2"></div>
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-3 mb-1">Recents</p>
           </div>
 
-          {/* Area Riwayat Chat */}
           <div className="flex-1 overflow-y-auto px-3 space-y-1">
-            {sessions.map(s => (
+            {filteredSessions.length === 0 && <p className="text-xs text-gray-400 text-center mt-4">Tidak ada chat.</p>}
+            {filteredSessions.map(s => (
               <div key={s.id} onClick={() => { setCurrentSessionId(s.id); setFileUploaded(null); if(window.innerWidth < 768) setSidebarOpen(false); }} className={`group flex items-center justify-between px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${currentSessionId === s.id ? 'bg-gray-200/70 dark:bg-gray-700 text-black dark:text-white font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'}`}>
                 <div className="flex items-center gap-2 truncate"><MessageSquare size={14} className="flex-shrink-0 opacity-50" /><span className="truncate">{s.title}</span></div>
                 <button onClick={(e) => deleteSession(e, s.id)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all"><Trash2 size={14} /></button>
@@ -233,6 +313,8 @@ export default function App() {
             <button onClick={() => setSidebarOpen(!sidebarOpen)} className="mr-3 text-gray-500 hover:text-black dark:hover:text-white"><Menu size={20} /></button>
             <div className="flex items-center gap-2">
               <h1 className="text-xs sm:text-sm font-semibold tracking-tight">Local Assistant</h1>
+              {isCodeMode && <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">CODE MODE</span>}
+              {isArtifactMode && <span className="text-[10px] bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-bold">ARTIFACTS MODE</span>}
             </div>
           </header>
 
@@ -242,7 +324,11 @@ export default function App() {
                 <div className="text-center mt-32 space-y-4 animate-fade-in">
                   <div className="w-10 h-10 sm:w-12 sm:h-12 bg-black dark:bg-white rounded-xl mx-auto flex items-center justify-center mb-4 sm:mb-6 shadow-lg"><Bot size={20} className="text-white dark:text-black" /></div>
                   <h2 className="text-xl sm:text-2xl font-semibold">Ada yang bisa saya bantu?</h2>
-                  <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto px-4">Unggah PDF/TXT lalu tanyakan isinya, atau ubah System Prompt di Settings.</p>
+                  <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto px-4">
+                    {isCodeMode ? "Mode Kode Aktif. Tanyakan sesuatu tentang pemrograman." : 
+                     isArtifactMode ? "Mode Artifacts Aktif. Minta AI membuat komponen UI." : 
+                     "Unggah PDF/TXT lalu tanyakan isinya, atau ubah System Prompt di Settings."}
+                  </p>
                 </div>
               )}
               {messages.map((msg, index) => (
@@ -255,6 +341,11 @@ export default function App() {
                       <div className="prose prose-sm dark:prose-invert max-w-none">
                         <ReactMarkdown>{msg.content || (isLoading && index === messages.length - 1 ? '●' : '')}</ReactMarkdown>
                       </div>
+                      
+                      {/* FITUR ARTIFACTS LIVE PREVIEW */}
+                      {msg.role === 'assistant' && isArtifactMode && (
+                        <ArtifactPreview content={msg.content} />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -266,7 +357,6 @@ export default function App() {
           <footer className="bg-gradient-to-t from-[#f9fafb] dark:from-[#111827] via-[#f9fafb] dark:via-[#111827] to-transparent pt-2 sm:pt-4 pb-4 sm:pb-6 shrink-0">
             <div className="max-w-3xl mx-auto px-2 sm:px-4">
               
-              {/* INDIKATOR FILE TERUPLOAD */}
               {fileUploaded && (
                 <div className="flex items-center gap-2 mb-2 animate-fade-in px-1">
                   <span className="flex items-center gap-1.5 text-[10px] sm:text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-1 rounded-md border border-green-200 dark:border-green-800">
@@ -314,6 +404,37 @@ export default function App() {
   );
 }
 
+// --- KOMPONEN ARTIFACT PREVIEW ---
+function ArtifactPreview({ content }: { content: string }) {
+  const codeBlock = useMemo(() => {
+    const match = content.match(/```(?:html|css|javascript|js)?\n([\s\S]*?)```/);
+    return match ? match[1] : null;
+  }, [content]);
+
+  if (!codeBlock) return null;
+
+  return (
+    <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Live Preview</p>
+      <Sandpack
+        template="static"
+        files={{
+          "/index.html": codeBlock,
+        }}
+        options={{
+          showNavigator: false,
+          showTabs: false,
+          editorHeight: 300,
+          showLineNumbers: false,
+          showInlineErrors: true,
+        }}
+        theme="dark"
+      />
+    </div>
+  );
+}
+
+// --- KOMPONEN SETTINGS MODAL ---
 function SettingsModal({ config, systemPrompt, onSave, onClose }: { config: ApiConfig, systemPrompt: string, onSave: (c: ApiConfig, p: string) => void, onClose: () => void }) {
   const [localConfig, setLocalConfig] = useState(config);
   const [localPrompt, setLocalPrompt] = useState(systemPrompt);
@@ -337,7 +458,6 @@ function SettingsModal({ config, systemPrompt, onSave, onClose }: { config: ApiC
         </div>
         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
           
-          {/* System Prompt */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-2">System Prompt (Persona AI)</label>
             <textarea value={localPrompt} onChange={(e) => setLocalPrompt(e.target.value)} rows={3}
@@ -347,7 +467,6 @@ function SettingsModal({ config, systemPrompt, onSave, onClose }: { config: ApiC
 
           <hr className="border-gray-200 dark:border-gray-700" />
 
-          {/* Provider Config */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-2">Tipe Provider</label>
             <select value={localConfig.provider} onChange={(e) => setLocalConfig({...localConfig, provider: e.target.value, api_key: '', base_url: e.target.value === 'ollama' ? '' : 'https://api.openai.com/v1', model: e.target.value === 'ollama' ? 'qwen2.5:1.5b' : ''})}
