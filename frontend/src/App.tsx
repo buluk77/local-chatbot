@@ -31,8 +31,9 @@ export default function App() {
   const [isCodeMode, setIsCodeMode] = useState(false);
   const [isArtifactMode, setIsArtifactMode] = useState(false);
   
+  // Default model diubah menjadi llama3.2:3b (sesuai backend)
   const [config, setConfig] = useState<ApiConfig>({
-    provider: 'ollama', api_key: '', base_url: 'https://api.openai.com/v1', model: 'qwen2.5:1.5b'
+    provider: 'ollama', api_key: '', base_url: 'https://api.openai.com/v1', model: 'llama3.2:3b'
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -309,12 +310,20 @@ export default function App() {
 
         {/* MAIN AREA */}
         <div className="flex-1 flex flex-col h-full relative min-w-0">
-          <header className="bg-white/80 dark:bg-[#1f2937]/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-700 h-14 flex items-center px-4 shrink-0">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="mr-3 text-gray-500 hover:text-black dark:hover:text-white"><Menu size={20} /></button>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xs sm:text-sm font-semibold tracking-tight">Local Assistant</h1>
-              {isCodeMode && <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">CODE MODE</span>}
-              {isArtifactMode && <span className="text-[10px] bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-bold">ARTIFACTS MODE</span>}
+          <header className="bg-white/80 dark:bg-[#1f2937]/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-700 h-14 flex items-center px-4 shrink-0 justify-between">
+            <div className="flex items-center">
+              <button onClick={() => setSidebarOpen(!sidebarOpen)} className="mr-3 text-gray-500 hover:text-black dark:hover:text-white"><Menu size={20} /></button>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xs sm:text-sm font-semibold tracking-tight">Local Assistant</h1>
+                
+                {/* MENAMPILKAN NAMA MODEL DI SINI */}
+                <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full font-medium border border-gray-200 dark:border-gray-600">
+                  {config.provider === 'ollama' ? config.model : `Cloud (${config.model})`}
+                </span>
+
+                {isCodeMode && <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">CODE</span>}
+                {isArtifactMode && <span className="text-[10px] bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-bold">ARTIFACTS</span>}
+              </div>
             </div>
           </header>
 
@@ -469,12 +478,23 @@ function SettingsModal({ config, systemPrompt, onSave, onClose }: { config: ApiC
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-2">Tipe Provider</label>
-            <select value={localConfig.provider} onChange={(e) => setLocalConfig({...localConfig, provider: e.target.value, api_key: '', base_url: e.target.value === 'ollama' ? '' : 'https://api.openai.com/v1', model: e.target.value === 'ollama' ? 'qwen2.5:1.5b' : ''})}
+            <select value={localConfig.provider} onChange={(e) => setLocalConfig({...localConfig, provider: e.target.value, api_key: '', base_url: e.target.value === 'ollama' ? '' : 'https://api.openai.com/v1', model: e.target.value === 'ollama' ? 'llama3.2:3b' : ''})}
               className="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-black dark:focus:ring-white outline-none">
               <option value="ollama">Ollama (Local)</option>
               <option value="custom">Custom OpenAI-Compatible</option>
             </select>
           </div>
+          
+          {/* TAMBAHKAN INPUT MODEL UNTUK OLLAMA AGAR BISA DIUBAH-UBAH */}
+          {localConfig.provider === 'ollama' && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-2">Nama Model Lokal</label>
+              <input type="text" value={localConfig.model} onChange={(e) => setLocalConfig({...localConfig, model: e.target.value})} 
+                className="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none" 
+                placeholder="llama3.2:3b atau qwen2.5:1.5b" />
+            </div>
+          )}
+
           {localConfig.provider === 'custom' && (
             <>
               <div><label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-2">Base URL</label><input type="text" value={localConfig.base_url} onChange={(e) => setLocalConfig({...localConfig, base_url: e.target.value})} className="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none" /></div>

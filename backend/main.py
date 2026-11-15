@@ -108,7 +108,8 @@ async def chat(data: dict, db: AsyncSession = Depends(get_db)):
     
     provider = data.get("provider", "ollama")
     api_key = data.get("api_key")
-    model = data.get("model", "qwen2.5:1.5b")
+    # DEFAULT MODEL DIGANTI KE LLAMA 3.2 3B
+    model = data.get("model", "llama3.2:3b") 
     base_url = data.get("base_url", "https://api.openai.com/v1")
 
     # LOGIKA RAG: Ambil dokumen di session ini
@@ -148,7 +149,8 @@ async def chat(data: dict, db: AsyncSession = Depends(get_db)):
 
     async def stream_ollama():
         async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream("POST", "http://localhost:11434/api/chat", json={"model": "qwen2.5:1.5b", "messages": final_messages, "stream": True}) as response:
+            # MODEL OLLAMA DIGANTI KE LLAMA 3.2 3B
+            async with client.stream("POST", "http://localhost:11434/api/chat", json={"model": "llama3.2:3b", "messages": final_messages, "stream": True}) as response:
                 async for line in response.aiter_lines():
                     if line.strip():
                         try:
