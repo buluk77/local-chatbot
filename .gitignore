@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+env/
+chatbot.db
+
+# Node.js
+node_modules/
+dist/
+.vite/
+
+# Environment
+.env
+
+# OS
+.DS_Store
+Thumbs.db
